@@ -4,9 +4,11 @@ Portfolio-grade Python application for exploring safe, human-controlled AI suppo
 
 ## Status
 
-**In development — Milestone 2 complete: customer context + knowledge retrieval.**
+**In development — Milestone 3A complete: strict structured analysis with a controlled mock provider.**
 
-The current version provides a working FastAPI backend, ticket persistence, workflow states, synthetic customer records, a local knowledge base, read-only retrieval tools, validation, automated tests, and GitHub Actions CI. Structured LLM analysis is the next milestone.
+The current version provides a working FastAPI backend, ticket persistence, workflow states, synthetic customer records, a local knowledge base, read-only retrieval tools, strict AI-analysis schemas, a provider abstraction, a deterministic mock provider, validation tests, and GitHub Actions CI.
+
+A real LLM provider has **not** been connected yet. The analysis pipeline is intentionally tested first without API keys or provider-specific code.
 
 ## Project Goal
 
@@ -28,34 +30,68 @@ Client
   ↓
 FastAPI
   ↓
-Pydantic validation
+Pydantic request validation
   ↓
 Service layer
-  ↓
-Read-only tool layer
+  ├─ Ticket persistence
   ├─ Customer lookup
-  └─ Knowledge-base search
-  ↓
-SQLAlchemy
-  ↓
-SQLite
+  ├─ Knowledge-base search
+  └─ Structured analysis validation
+       ↓
+   Provider interface
+       ↓
+   Controlled mock provider
+       ↓
+   TicketAnalysis schema
+       ↓
+   Reject invalid output
 ```
+
+Reference data is stored through SQLAlchemy + SQLite.
 
 Planned next layer:
 
 ```text
 Validated ticket
   ↓
-Structured LLM analysis
+Real LLM provider adapter
+  ↓
+Strict TicketAnalysis output
   ↓
 Allow-listed read tools
   ↓
-Proposed action
+Proposed action policy
   ↓
 Human approval gate for protected writes
   ↓
 Action execution + audit log
 ```
+
+## Structured Analysis Contract
+
+The provider is not allowed to return arbitrary free-form data to downstream code. Provider output must validate against `TicketAnalysis`.
+
+```text
+TicketAnalysis
+├── category
+├── priority
+├── summary
+├── proposed_action
+├── requires_approval
+├── knowledge_query
+└── response_draft
+```
+
+Unknown fields are rejected.
+
+Protected actions are validated by deterministic application rules. For example:
+
+```text
+CREATE_REFUND_REQUEST
+→ requires_approval must be true
+```
+
+The provider cannot override that rule.
 
 ## Current API
 
@@ -81,6 +117,50 @@ Returns a synthetic demo customer by email. The lookup is read-only and case-ins
 
 ### `GET /knowledge/search?q=...`
 Searches active local knowledge-base articles. The search is read-only and returns at most 10 results.
+
+### `POST /analysis/preview`
+Runs structured analysis through the controlled mock provider.
+
+Example request:
+
+```json
+{
+  "customer_email": "mark@example.com",
+  "message": "I was charged twice and I need help."
+}
+```
+
+Example structured result:
+
+```json
+{
+  "category": "BILLING",
+  "priority": "HIGH",
+  "summary": "Customer reports a possible duplicate charge.",
+  "proposed_action": "CREATE_REFUND_REQUEST",
+  "requires_approval": true,
+  "knowledge_query": "duplicate charge refund policy",
+  "response_draft": "Thanks for flagging this. I have prepared the case for review. Any refund-related action requires human approval before it can be submitted."
+}
+```
+
+This preview endpoint does **not** persist the analysis and does **not** execute any action.
+
+## Why a Mock Provider First?
+
+The mock provider is intentional, not a substitute for the final LLM integration.
+
+It lets the project test:
+
+- the provider interface,
+- strict structured output,
+- enum validation,
+- rejection of unexpected fields,
+- protected-action rules,
+- API behavior,
+- CI coverage,
+
+before introducing network calls, API keys, model variability, or provider-specific SDKs.
 
 ## Demo Data
 
@@ -109,7 +189,7 @@ get_customer_by_email()
 search_knowledge_base()
 ```
 
-These functions retrieve context but do not modify system state.
+The analysis preview proposes actions but executes nothing.
 
 Protected write tools will be introduced later and will require explicit human approval before execution.
 
@@ -131,6 +211,9 @@ Failure state: `FAILED`
 
 - Customer text is treated as untrusted input.
 - AI will not be allowed to execute arbitrary tools.
+- Provider output must pass strict Pydantic validation.
+- Unexpected structured-output fields are rejected.
+- Protected actions require deterministic approval rules.
 - Read-only and state-changing tools remain explicitly separated.
 - Protected writes will require human approval.
 - Real secrets belong in `.env`, which is ignored by Git.
@@ -147,12 +230,15 @@ Failure state: `FAILED`
 - pytest
 - GitHub Actions
 
-Planned: structured LLM output, tool/function calling, human approval, audit logging, and a simple UI.
+Planned: real LLM provider integration, tool/function calling, human approval, audit logging, and a simple UI.
 
 ## Project Structure
 
 ```text
 app/
+├── ai/
+│   ├── provider.py
+│   └── mock_provider.py
 ├── main.py
 ├── config.py
 ├── db/
@@ -163,10 +249,12 @@ app/
 │   ├── knowledge.py
 │   └── ticket.py
 ├── schemas/
+│   ├── analysis.py
 │   ├── customer.py
 │   ├── knowledge.py
 │   └── ticket.py
 ├── services/
+│   ├── analysis_service.py
 │   ├── customer_service.py
 │   ├── knowledge_service.py
 │   └── ticket_service.py
@@ -174,6 +262,9 @@ app/
     └── read_tools.py
 
 tests/
+├── test_analysis_api.py
+├── test_analysis_schema.py
+├── test_analysis_service.py
 ├── test_health.py
 ├── test_read_tools.py
 ├── test_reference_api.py
@@ -215,14 +306,14 @@ python -m pytest -q
 
 1. Backend foundation and ticket persistence — **complete**
 2. Customer model, local knowledge base, and read-only retrieval tools — **complete**
-3. Structured LLM analysis — **next**
-4. Allow-listed orchestrator tool use
-5. Proposed-action policy
-6. Human approval workflow
-7. Protected write tools
-8. Audit logging and failure handling
-9. Expanded automated tests
-10. Portfolio evidence and case study
+3. Structured analysis contract + mock provider — **complete**
+4. Real LLM provider adapter — **next**
+5. Allow-listed orchestrator tool use
+6. Proposed-action policy
+7. Human approval workflow
+8. Protected write tools
+9. Audit logging and failure handling
+10. Expanded portfolio evidence and case study
 
 ## Portfolio Context
 
