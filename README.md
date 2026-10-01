@@ -4,11 +4,9 @@ Portfolio-grade Python application for exploring safe, human-controlled AI suppo
 
 ## Status
 
-**In development — Milestone 3A complete: strict structured analysis with a controlled mock provider.**
+**In development — Milestone 3B adapter implementation complete; live OpenAI API smoke test pending.**
 
-The current version provides a working FastAPI backend, ticket persistence, workflow states, synthetic customer records, a local knowledge base, read-only retrieval tools, strict AI-analysis schemas, a provider abstraction, a deterministic mock provider, validation tests, and GitHub Actions CI.
-
-A real LLM provider has **not** been connected yet. The analysis pipeline is intentionally tested first without API keys or provider-specific code.
+The current version provides a working FastAPI backend, ticket persistence, workflow states, synthetic customer records, a local knowledge base, read-only retrieval tools, strict structured analysis validation, a deterministic mock provider, an OpenAI Responses API adapter, automated tests, and GitHub Actions CI.
 
 ## Project Goal
 
@@ -30,73 +28,81 @@ Client
   ↓
 FastAPI
   ↓
-Pydantic request validation
+Pydantic validation
   ↓
-Service layer
-  ├─ Ticket persistence
+AnalysisProvider interface
+  ├─ MockAnalysisProvider (default for local dev + CI)
+  └─ OpenAIAnalysisProvider (Responses API)
+  ↓
+Strict TicketAnalysis validation
+  ↓
+Read-only tool layer
   ├─ Customer lookup
-  ├─ Knowledge-base search
-  └─ Structured analysis validation
-       ↓
-   Provider interface
-       ↓
-   Controlled mock provider
-       ↓
-   TicketAnalysis schema
-       ↓
-   Reject invalid output
+  └─ Knowledge-base search
+  ↓
+SQLAlchemy
+  ↓
+SQLite
 ```
 
-Reference data is stored through SQLAlchemy + SQLite.
-
-Planned next layer:
-
-```text
-Validated ticket
-  ↓
-Real LLM provider adapter
-  ↓
-Strict TicketAnalysis output
-  ↓
-Allow-listed read tools
-  ↓
-Proposed action policy
-  ↓
-Human approval gate for protected writes
-  ↓
-Action execution + audit log
-```
+Protected write tools are intentionally not available to the AI yet.
 
 ## Structured Analysis Contract
 
-The provider is not allowed to return arbitrary free-form data to downstream code. Provider output must validate against `TicketAnalysis`.
+Provider output must validate as `TicketAnalysis`:
 
 ```text
-TicketAnalysis
-├── category
-├── priority
-├── summary
-├── proposed_action
-├── requires_approval
-├── knowledge_query
-└── response_draft
+category
+priority
+summary
+proposed_action
+requires_approval
+knowledge_query
+response_draft
 ```
 
-Unknown fields are rejected.
+Extra fields are rejected.
 
-Protected actions are validated by deterministic application rules. For example:
+Protected actions such as `CREATE_REFUND_REQUEST` must have:
 
 ```text
-CREATE_REFUND_REQUEST
-→ requires_approval must be true
+requires_approval = true
 ```
 
-The provider cannot override that rule.
+That rule is enforced by application validation rather than trusted to the model.
+
+## OpenAI Adapter
+
+The OpenAI adapter uses the Responses API with strict JSON Schema structured output.
+
+The application remains provider-agnostic: the rest of the workflow depends on the `AnalysisProvider` interface rather than on OpenAI-specific code.
+
+Normal development and CI use the mock provider, so automated tests do not make paid external API calls.
+
+### Provider configuration
+
+Copy `.env.example` to `.env` and keep the default mock provider while developing:
+
+```text
+ANALYSIS_PROVIDER=mock
+```
+
+To enable the real adapter locally:
+
+```text
+ANALYSIS_PROVIDER=openai
+OPENAI_API_KEY=your_private_key_here
+OPENAI_MODEL=gpt-6-luna
+```
+
+`OPENAI_MODEL` is configurable without code changes. Never commit a real `.env` file or API key.
+
+A live provider smoke test is intentionally treated as separate evidence and is not run automatically in CI.
 
 ## Current API
 
 ### `GET /health`
-Returns a simple service-health response.
+Returns service health, environment, and selected analysis provider.
 
 ### `POST /tickets`
 Creates and persists a validated support ticket.
@@ -119,48 +125,9 @@ Returns a synthetic demo customer by email. The lookup is read-only and case-ins
 Searches active local knowledge-base articles. The search is read-only and returns at most 10 results.
 
 ### `POST /analysis/preview`
-Runs structured analysis through the controlled mock provider.
+Runs structured ticket analysis without persisting analysis results and without executing actions.
 
-Example request:
-
-```json
-{
-  "customer_email": "mark@example.com",
-  "message": "I was charged twice and I need help."
-}
-```
-
-Example structured result:
-
-```json
-{
-  "category": "BILLING",
-  "priority": "HIGH",
-  "summary": "Customer reports a possible duplicate charge.",
-  "proposed_action": "CREATE_REFUND_REQUEST",
-  "requires_approval": true,
-  "knowledge_query": "duplicate charge refund policy",
-  "response_draft": "Thanks for flagging this. I have prepared the case for review. Any refund-related action requires human approval before it can be submitted."
-}
-```
-
-This preview endpoint does **not** persist the analysis and does **not** execute any action.
-
-## Why a Mock Provider First?
-
-The mock provider is intentional, not a substitute for the final LLM integration.
-
-It lets the project test:
-
-- the provider interface,
-- strict structured output,
-- enum validation,
-- rejection of unexpected fields,
-- protected-action rules,
-- API behavior,
-- CI coverage,
-
-before introducing network calls, API keys, model variability, or provider-specific SDKs.
+With the default configuration this uses the deterministic mock provider. With `ANALYSIS_PROVIDER=openai`, the same endpoint uses the OpenAI adapter and then validates the returned data again with Pydantic.
 
 ## Demo Data
 
@@ -189,7 +156,7 @@ get_customer_by_email()
 search_knowledge_base()
 ```
 
-The analysis preview proposes actions but executes nothing.
+These functions retrieve context but do not modify system state.
 
 Protected write tools will be introduced later and will require explicit human approval before execution.
 
@@ -210,13 +177,13 @@ Failure state: `FAILED`
 ## Safety Principles
 
 - Customer text is treated as untrusted input.
-- AI will not be allowed to execute arbitrary tools.
-- Provider output must pass strict Pydantic validation.
-- Unexpected structured-output fields are rejected.
-- Protected actions require deterministic approval rules.
+- Provider output is schema-constrained and validated again by Pydantic.
+- AI cannot choose arbitrary application fields.
+- AI is not allowed to execute arbitrary tools.
 - Read-only and state-changing tools remain explicitly separated.
-- Protected writes will require human approval.
+- Protected writes require human approval.
 - Real secrets belong in `.env`, which is ignored by Git.
+- CI uses mocks and does not require an API key.
 - Public portfolio evidence uses synthetic or sanitized data.
 - No real refunds, payments, or customer-account changes are performed by this portfolio prototype.
 
@@ -227,20 +194,23 @@ Failure state: `FAILED`
 - Pydantic
 - SQLAlchemy
 - SQLite
+- OpenAI Python SDK / Responses API
 - pytest
 - GitHub Actions
 
-Planned: real LLM provider integration, tool/function calling, human approval, audit logging, and a simple UI.
+Planned: allow-listed tool/function calling, human approval, audit logging, and a simple UI.
 
 ## Project Structure
 
 ```text
 app/
-├── ai/
-│   ├── provider.py
-│   └── mock_provider.py
 ├── main.py
 ├── config.py
+├── ai/
+│   ├── factory.py
+│   ├── provider.py
+│   ├── mock_provider.py
+│   └── openai_provider.py
 ├── db/
 │   ├── session.py
 │   └── seed.py
@@ -266,6 +236,8 @@ tests/
 ├── test_analysis_schema.py
 ├── test_analysis_service.py
 ├── test_health.py
+├── test_openai_provider.py
+├── test_provider_factory.py
 ├── test_read_tools.py
 ├── test_reference_api.py
 ├── test_ticket_api.py
@@ -306,14 +278,15 @@ python -m pytest -q
 
 1. Backend foundation and ticket persistence — **complete**
 2. Customer model, local knowledge base, and read-only retrieval tools — **complete**
-3. Structured analysis contract + mock provider — **complete**
-4. Real LLM provider adapter — **next**
+3. Strict provider-agnostic structured analysis pipeline — **complete**
+4. OpenAI Responses API adapter — **code complete; live smoke test pending**
 5. Allow-listed orchestrator tool use
 6. Proposed-action policy
 7. Human approval workflow
 8. Protected write tools
 9. Audit logging and failure handling
-10. Expanded portfolio evidence and case study
+10. Expanded automated tests
+11. Portfolio evidence and case study
 
 ## Portfolio Context
 
