@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "sqlite:///./support_copilot.db"
 
+    analysis_provider: str = "mock"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-6-luna"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

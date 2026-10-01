@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 
-from app.ai.mock_provider import MockAnalysisProvider
+from app.ai.factory import build_analysis_provider
 from app.config import settings
 from app.db.seed import seed_demo_data
 from app.db.session import Base, SessionLocal, engine, get_db
@@ -21,7 +21,7 @@ from app.services.knowledge_service import search_knowledge_base
 from app.services.ticket_service import create_ticket
 
 
-analysis_provider = MockAnalysisProvider()
+analysis_provider = build_analysis_provider(settings)
 
 
 @asynccontextmanager
@@ -34,7 +34,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.3.0",
+    version="0.4.0",
     description="Portfolio-grade AI support operations copilot foundation.",
     lifespan=lifespan,
 )
@@ -44,7 +44,8 @@ app = FastAPI(
 def root() -> dict[str, str]:
     return {
         "service": settings.app_name,
-        "status": "structured-analysis-ready",
+        "status": "provider-adapter-ready",
+        "analysis_provider": settings.analysis_provider,
     }
 
 
@@ -53,6 +54,7 @@ def health() -> dict[str, str]:
     return {
         "status": "ok",
         "environment": settings.environment,
+        "analysis_provider": settings.analysis_provider,
     }
 
 
@@ -90,7 +92,7 @@ def knowledge_search(
 
 @app.post("/analysis/preview", response_model=TicketAnalysis)
 def analysis_preview(payload: AnalysisPreviewRequest) -> TicketAnalysis:
-    """Run deterministic structured analysis without persisting or executing actions."""
+    """Run structured analysis without persisting or executing actions."""
     return analyze_ticket_preview(
         analysis_provider,
         customer_email=str(payload.customer_email),
