@@ -4,18 +4,24 @@ from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 
+from app.ai.mock_provider import MockAnalysisProvider
 from app.config import settings
 from app.db.seed import seed_demo_data
 from app.db.session import Base, SessionLocal, engine, get_db
 from app.models.customer import Customer  # noqa: F401 - registers model metadata
 from app.models.knowledge import KnowledgeArticle  # noqa: F401 - registers model metadata
 from app.models.ticket import Ticket  # noqa: F401 - registers model metadata
+from app.schemas.analysis import AnalysisPreviewRequest, TicketAnalysis
 from app.schemas.customer import CustomerRead
 from app.schemas.knowledge import KnowledgeArticleRead
 from app.schemas.ticket import TicketCreate, TicketRead
+from app.services.analysis_service import analyze_ticket_preview
 from app.services.customer_service import get_customer_by_email
 from app.services.knowledge_service import search_knowledge_base
 from app.services.ticket_service import create_ticket
+
+
+analysis_provider = MockAnalysisProvider()
 
 
 @asynccontextmanager
@@ -28,7 +34,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.3.0",
     description="Portfolio-grade AI support operations copilot foundation.",
     lifespan=lifespan,
 )
@@ -38,7 +44,7 @@ app = FastAPI(
 def root() -> dict[str, str]:
     return {
         "service": settings.app_name,
-        "status": "reference-data-ready",
+        "status": "structured-analysis-ready",
     }
 
 
@@ -80,3 +86,13 @@ def knowledge_search(
     db: Session = Depends(get_db),
 ) -> list[KnowledgeArticleRead]:
     return search_knowledge_base(db, q, limit=limit)
+
+
+@app.post("/analysis/preview", response_model=TicketAnalysis)
+def analysis_preview(payload: AnalysisPreviewRequest) -> TicketAnalysis:
+    """Run deterministic structured analysis without persisting or executing actions."""
+    return analyze_ticket_preview(
+        analysis_provider,
+        customer_email=str(payload.customer_email),
+        message=payload.message,
+    )
