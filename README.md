@@ -156,7 +156,7 @@ http://127.0.0.1:8000/docs
 Run tests with:
 
 ```bash
-pytest
+python -m pytest -q
 ```
 
 ## Development Roadmap
