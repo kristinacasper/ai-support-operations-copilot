@@ -4,9 +4,9 @@ Portfolio-grade Python application for exploring safe, human-controlled AI suppo
 
 ## Status
 
-**In development — foundation phase.**
+**In development — Milestone 2 complete: customer context + knowledge retrieval.**
 
-The current version establishes the backend structure, ticket persistence, workflow states, validation, and initial automated tests. LLM integration and controlled tool calling will be added in later milestones.
+The current version provides a working FastAPI backend, ticket persistence, workflow states, synthetic customer records, a local knowledge base, read-only retrieval tools, validation, automated tests, and GitHub Actions CI. Structured LLM analysis is the next milestone.
 
 ## Project Goal
 
@@ -21,7 +21,7 @@ Build a small but realistic support-operations copilot that can:
 - keep an audit trail,
 - fail safely when required information is missing or invalid.
 
-## Current Foundation
+## Current Architecture
 
 ```text
 Client
@@ -31,6 +31,10 @@ FastAPI
 Pydantic validation
   ↓
 Service layer
+  ↓
+Read-only tool layer
+  ├─ Customer lookup
+  └─ Knowledge-base search
   ↓
 SQLAlchemy
   ↓
@@ -42,7 +46,7 @@ Planned next layer:
 ```text
 Validated ticket
   ↓
-LLM structured analysis
+Structured LLM analysis
   ↓
 Allow-listed read tools
   ↓
@@ -72,6 +76,43 @@ Example request:
 
 New tickets begin with the workflow state `NEW`.
 
+### `GET /customers/lookup?email=...`
+Returns a synthetic demo customer by email. The lookup is read-only and case-insensitive.
+
+### `GET /knowledge/search?q=...`
+Searches active local knowledge-base articles. The search is read-only and returns at most 10 results.
+
+## Demo Data
+
+Only synthetic portfolio data is seeded automatically.
+
+Example demo customer:
+
+```text
+mark@example.com
+```
+
+Example knowledge topics:
+
+- duplicate charge handling,
+- password reset guidance,
+- simulated refund-request policy.
+
+No real customer records are used.
+
+## Read vs. Write Boundary
+
+The current tool layer contains only read-only functions:
+
+```text
+get_customer_by_email()
+search_knowledge_base()
+```
+
+These functions retrieve context but do not modify system state.
+
+Protected write tools will be introduced later and will require explicit human approval before execution.
+
 ## Workflow States
 
 ```text
@@ -90,10 +131,10 @@ Failure state: `FAILED`
 
 - Customer text is treated as untrusted input.
 - AI will not be allowed to execute arbitrary tools.
-- Read-only and state-changing tools will remain explicitly separated.
+- Read-only and state-changing tools remain explicitly separated.
 - Protected writes will require human approval.
 - Real secrets belong in `.env`, which is ignored by Git.
-- Public portfolio evidence must use synthetic or sanitized data.
+- Public portfolio evidence uses synthetic or sanitized data.
 - No real refunds, payments, or customer-account changes are performed by this portfolio prototype.
 
 ## Technology
@@ -104,6 +145,7 @@ Failure state: `FAILED`
 - SQLAlchemy
 - SQLite
 - pytest
+- GitHub Actions
 
 Planned: structured LLM output, tool/function calling, human approval, audit logging, and a simple UI.
 
@@ -114,17 +156,27 @@ app/
 ├── main.py
 ├── config.py
 ├── db/
-│   └── session.py
+│   ├── session.py
+│   └── seed.py
 ├── models/
+│   ├── customer.py
+│   ├── knowledge.py
 │   └── ticket.py
 ├── schemas/
+│   ├── customer.py
+│   ├── knowledge.py
 │   └── ticket.py
 ├── services/
+│   ├── customer_service.py
+│   ├── knowledge_service.py
 │   └── ticket_service.py
 └── tools/
+    └── read_tools.py
 
 tests/
 ├── test_health.py
+├── test_read_tools.py
+├── test_reference_api.py
 ├── test_ticket_api.py
 └── test_ticket_schema.py
 ```
@@ -147,7 +199,7 @@ Copy `.env.example` to `.env`, then run:
 uvicorn app.main:app --reload
 ```
 
-Open the automatically generated API documentation at:
+Open the generated API documentation at:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -161,10 +213,10 @@ python -m pytest -q
 
 ## Development Roadmap
 
-1. Backend foundation and ticket persistence — **current milestone**
-2. Customer and knowledge-base models
-3. Structured LLM analysis
-4. Read-only tool layer
+1. Backend foundation and ticket persistence — **complete**
+2. Customer model, local knowledge base, and read-only retrieval tools — **complete**
+3. Structured LLM analysis — **next**
+4. Allow-listed orchestrator tool use
 5. Proposed-action policy
 6. Human approval workflow
 7. Protected write tools
